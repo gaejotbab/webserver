@@ -8,10 +8,11 @@
 #include <arpa/inet.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include <string.h>
 
 static const int backlog = 32;
 
-static const size_t buf_len = 1024;
+static const size_t initial_buf_capacity = 8;
 
 static bool server_stopped = false;
 
@@ -22,13 +23,55 @@ struct socket_handler_data {
 static void *accepted_socket_handler(void *arg)
 {
     struct socket_handler_data data = *((struct socket_handler_data *)arg);
+    free(arg);
 
-    char buf[buf_len];
+    printf("[%d] accepted_socket_handler\n", data.accepted_socket_fd);
 
-    int received_length = recv(data.accepted_socket_fd, buf, buf_len, 0);
-    buf[received_length] = '\0';
+    int buf_capacity = initial_buf_capacity;
+    char *buf = malloc(buf_capacity);
+    int buf_length = 0;
+
+    int line_feed_index = -1;
+
+    while (1) {
+        printf("[%d] before recv\n", data.accepted_socket_fd);
+
+        int received_length = recv(data.accepted_socket_fd,
+                buf + buf_length, buf_capacity - buf_length, 0);
+
+        if (received_length == -1) {
+            perror("recv");
+            exit(100);
+        }
+
+        printf("[%d] received_length=%d\n", data.accepted_socket_fd, received_length);
+
+        line_feed_index = -1;
+        for (int i = buf_length; i < buf_length + received_length; ++i) {
+            if (buf[i] == '\n') {
+                line_feed_index = i;
+                break;
+            }
+        }
+
+        if (line_feed_index != -1) {
+            break;
+        }
+
+        buf_length += received_length;
+        if (buf_length == buf_capacity) {
+            buf_capacity *= 2;
+            buf = realloc(buf, buf_capacity);
+        }
+    }
+
+    // CR position
+    buf[line_feed_index - 1] = '\0';
 
     printf("[%d] %s\n", data.accepted_socket_fd, buf);
+
+    char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, world!";
+    send(data.accepted_socket_fd, http_response, strlen(http_response), 0);
 
     close(data.accepted_socket_fd);
 
@@ -86,17 +129,19 @@ int main(int argc, char **argv)
 
         printf("accepted: return=%d\n", accepted_socket_fd);
 
-        struct socket_handler_data data;
-        data.accepted_socket_fd = accepted_socket_fd;
+        struct socket_handler_data *data = malloc(sizeof(struct socket_handler_data));
+        data->accepted_socket_fd = accepted_socket_fd;
 
         pthread_t thread;
 
-        int pthread_result = pthread_create(&thread, NULL, accepted_socket_handler, &data);
+        int pthread_result = pthread_create(&thread, NULL, accepted_socket_handler, data);
 
         if (pthread_result != 0) {
             perror("pthread_create");
             exit(5);
         }
+
+        printf("pthread %lu\n", thread);
     }
 
     return 0;
