@@ -102,12 +102,12 @@ void remove_crlf(char *str)
 {
     int len = strlen(str);
 
-    if (str[len] == '\n') {
-        str[len] = '\0';
+    if (str[len - 1] == '\n') {
+        str[len - 1] = '\0';
     }
 
-    if (str[len - 1] == '\r') {
-        str[len - 1] = '\0';
+    if (str[len - 2] == '\r') {
+        str[len - 2] = '\0';
     }
 }
 
@@ -130,10 +130,7 @@ static void *accepted_socket_handler(void *arg)
     };
 
     char *request_line = recv_line(&recv_buffer);
-    int request_line_len = strlen(request_line);
-
-    // CR position
-    request_line[request_line_len - 1] = '\0';
+    remove_crlf(request_line);
 
     log_debug("[%d] first line: %s\n", fd, request_line);
 
@@ -157,6 +154,7 @@ static void *accepted_socket_handler(void *arg)
             fd, method, request_target, http_version);
 
     char *first_header = recv_line(&recv_buffer);
+    remove_crlf(first_header);
 
     log_debug("[%d] first header: %s\n", fd, first_header);
 
