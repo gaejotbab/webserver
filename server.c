@@ -42,6 +42,8 @@ enum HttpMethod {
 
 struct HandleClientArgs {
     int sk;
+
+    struct sockaddr_in client_addr;
 };
 
 struct RecvBuffer {
@@ -127,17 +129,25 @@ bool str_starts_with(char *s, char *prefix)
     return strncmp(s, prefix, strlen(prefix)) == 0;
 }
 
-static void *handle_client(void *arg)
+void log_debug_handle_client_header(struct HandleClientArgs *args)
 {
-    struct HandleClientArgs data = *((struct HandleClientArgs *)arg);
-    free(arg);
+    log_debug("[%d] [%s:%d] ",
+            args->sk,
+            inet_ntoa(args->client_addr.sin_addr),
+            ntohs(args->client_addr.sin_port));
+}
 
-    int fd = data.sk;
+static void *handle_client(void *void_arg)
+{
+    struct HandleClientArgs *args = void_arg;
 
-    log_debug("[%d] thread started: fn=accepted_socket_handler\n", fd);
+    int sk = args->sk;
+
+    log_debug_handle_client_header(args);
+    log_debug("thread started: fn=accepted_socket_handler\n");
 
     struct RecvBuffer recv_buffer = {
-        .fd = fd,
+        .fd = sk,
 
         .buf = malloc(recv_buf_capacity),
         .pos = 0,
@@ -148,7 +158,8 @@ static void *handle_client(void *arg)
     char *request_line = recv_line(&recv_buffer);
     remove_crlf(request_line);
 
-    log_debug("[%d] first line: %s\n", fd, request_line);
+    log_debug_handle_client_header(args);
+    log_debug("first line: %s\n", request_line);
 
     enum HttpMethod method;
     char *request_target;
@@ -182,11 +193,13 @@ static void *handle_client(void *arg)
     }
 
     if (!found) {
-        log_debug("[%d] Unknown HTTP method\n", fd);
+        log_debug_handle_client_header(args);
+        log_debug("Unknown HTTP method\n");
         goto finally;
     }
 
-    log_debug("[%d] Given method: %d\n", fd, method);
+    log_debug_handle_client_header(args);
+    log_debug("Given method: %d\n", method);
 
     char *first_space_ptr = strchr(request_line, ' ');
     *first_space_ptr = '\0';
@@ -198,8 +211,9 @@ static void *handle_client(void *arg)
 
     http_version = strdup(second_space_ptr + 1);
 
-    log_debug("[%d] Request line\n\tMethod: %d\n\tRequest target: %s\n\tHTTP version: %s\n",
-            fd, method, request_target, http_version);
+    log_debug_handle_client_header(args);
+    log_debug("Request line\n\tMethod: %d\n\tRequest target: %s\n\tHTTP version: %s\n",
+            method, request_target, http_version);
 
     int count = 0;
     while (1) {
@@ -209,18 +223,21 @@ static void *handle_client(void *arg)
             break;
         }
 
-        log_debug("[%d] %d header: %s\n", fd, count++, header_line);
+        log_debug_handle_client_header(args);
+        log_debug("%d header: %s\n", count++, header_line);
     }
 
     char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, world!";
 
-    int send_result = send(fd, http_response, strlen(http_response), 0);
+    int send_result = send(sk, http_response, strlen(http_response), 0);
     if (send_result == -1) {
         perror("send");
     }
 
 finally:
-    close(fd);
+    free(args);
+
+    close(sk);
 
     return NULL;
 }
@@ -269,6 +286,7 @@ int main(int argc, char **argv)
 
         struct HandleClientArgs *args = malloc(sizeof(struct HandleClientArgs));
         args->sk = sk;
+        args->client_addr = client_addr;
 
         pthread_t client_thread;
 
