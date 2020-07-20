@@ -11,6 +11,8 @@
 #include <string.h>
 #include <stdarg.h>
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
+
 void log_debug(const char *format, ...)
 {
     va_list ap;
@@ -25,6 +27,18 @@ static const size_t initial_str_buf_capacity = 64;
 static const size_t recv_buf_capacity = 2048;
 
 static bool server_stopped = false;
+
+enum HttpMethod {
+    HTTP_METHOD_GET = 1,
+    HTTP_METHOD_HEAD,
+    HTTP_METHOD_POST,
+    HTTP_METHOD_PUT,
+    HTTP_METHOD_DELETE,
+    HTTP_METHOD_TRACE,
+    HTTP_METHOD_OPTIONS,
+    HTTP_METHOD_CONNECT,
+    HTTP_METHOD_PATCH,
+};
 
 struct HandleClientArgs {
     int sk;
@@ -108,6 +122,11 @@ void remove_crlf(char *str)
     }
 }
 
+bool str_starts_with(char *s, char *prefix)
+{
+    return strncmp(s, prefix, strlen(prefix)) == 0;
+}
+
 static void *handle_client(void *arg)
 {
     struct HandleClientArgs data = *((struct HandleClientArgs *)arg);
@@ -131,14 +150,46 @@ static void *handle_client(void *arg)
 
     log_debug("[%d] first line: %s\n", fd, request_line);
 
-    char *method;
+    enum HttpMethod method;
     char *request_target;
     char *http_version;
 
+    struct MethodTableEntry {
+        char *request_line_prefix;
+        enum HttpMethod method;
+    };
+
+    struct MethodTableEntry method_table[] = {
+        { "GET ", HTTP_METHOD_GET },
+        { "HEAD ", HTTP_METHOD_HEAD },
+        { "POST ", HTTP_METHOD_POST },
+        { "PUT ", HTTP_METHOD_PUT },
+        { "DELETE ", HTTP_METHOD_DELETE },
+        { "TRACE ", HTTP_METHOD_TRACE },
+        { "OPTIONS ", HTTP_METHOD_OPTIONS },
+        { "CONNECT ", HTTP_METHOD_CONNECT },
+        { "PATCH ", HTTP_METHOD_PATCH },
+    };
+
+    bool found = false;
+
+    for (int i = 0; i < ARRAY_SIZE(method_table); ++i) {
+        if (str_starts_with(request_line, method_table[i].request_line_prefix)) {
+            method = method_table[i].method;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        log_debug("[%d] Unknown HTTP method\n", fd);
+        goto finally;
+    }
+
+    log_debug("[%d] Given method: %d\n", fd, method);
+
     char *first_space_ptr = strchr(request_line, ' ');
     *first_space_ptr = '\0';
-
-    method = strdup(request_line);
 
     char *second_space_ptr = strchr(first_space_ptr + 1, ' ');
     *second_space_ptr = '\0';
@@ -147,7 +198,7 @@ static void *handle_client(void *arg)
 
     http_version = strdup(second_space_ptr + 1);
 
-    log_debug("[%d] Request line\n\tMethod: %s\n\tRequest target: %s\n\tHTTP version: %s\n",
+    log_debug("[%d] Request line\n\tMethod: %d\n\tRequest target: %s\n\tHTTP version: %s\n",
             fd, method, request_target, http_version);
 
     int count = 0;
@@ -168,6 +219,7 @@ static void *handle_client(void *arg)
         perror("send");
     }
 
+finally:
     close(fd);
 
     return NULL;
