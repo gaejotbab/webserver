@@ -251,8 +251,24 @@ static void *handle_client(void *void_arg)
             break;
         }
 
+        char *header_field_name;
+        char *header_field_value;
+
+        char *colon_ptr = strchr(header_line, ':');
+        header_field_name = strndup(header_line, colon_ptr - header_line);
+
+        char *ptr;
+        for (ptr = colon_ptr + 1; *ptr == ' ' || *ptr == '\t'; ++ptr) {
+            // Nothing.
+        }
+        header_field_value = strdup(ptr);
+
         log_debug_handle_client_header(args);
-        log_debug("%d header: %s\n", count++, header_line);
+        log_debug("%d Header field name: %s\n", count, header_field_name);
+        log_debug_handle_client_header(args);
+        log_debug("%d Header field value: %s\n", count, header_field_value);
+
+        ++count;
     }
 
     char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, world!";
