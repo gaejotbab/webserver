@@ -61,7 +61,8 @@ struct RecvBuffer {
     int cap;
 };
 
-char *recv_str_until(struct RecvBuffer *recv_buffer, char c) {
+char *recv_str_until(struct RecvBuffer *recv_buffer, char c)
+{
     int str_buf_capacity = initial_str_buf_capacity;
     char *str_buf = malloc(str_buf_capacity);
     int str_buf_len = 0;
