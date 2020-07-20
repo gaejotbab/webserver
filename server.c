@@ -81,9 +81,9 @@ char *recv_str_until(struct RecvBuffer *recv_buffer, char c) {
     }
 
     if (str_buf_len + 1 > str_buf_capacity) {
-		++str_buf_capacity;
-		str_buf = realloc(str_buf, str_buf_capacity);
-	}
+        ++str_buf_capacity;
+        str_buf = realloc(str_buf, str_buf_capacity);
+    }
 
     str_buf[str_buf_len] = '\0';
 
