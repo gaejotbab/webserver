@@ -150,10 +150,16 @@ static void *handle_client(void *arg)
     log_debug("[%d] Request line\n\tMethod: %s\n\tRequest target: %s\n\tHTTP version: %s\n",
             fd, method, request_target, http_version);
 
-    char *first_header = recv_line(&recv_buffer);
-    remove_crlf(first_header);
+    int count = 0;
+    while (1) {
+        char *header_line = recv_line(&recv_buffer);
+        remove_crlf(header_line);
+        if (strlen(header_line) == 0) {
+            break;
+        }
 
-    log_debug("[%d] first header: %s\n", fd, first_header);
+        log_debug("[%d] %d header: %s\n", fd, count++, header_line);
+    }
 
     char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, world!";
 
