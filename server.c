@@ -40,6 +40,12 @@ enum HttpMethod {
     HTTP_METHOD_PATCH,
 };
 
+enum HttpVersion {
+    HTTP_VERSION_0_9 = 1,
+    HTTP_VERSION_1_0,
+    HTTP_VERSION_1_1,
+};
+
 struct HandleClientArgs {
     int sk;
 
@@ -129,6 +135,18 @@ bool str_starts_with(char *s, char *prefix)
     return strncmp(s, prefix, strlen(prefix)) == 0;
 }
 
+bool str_ends_with(char *s, char *suffix)
+{
+    int s_len = strlen(s);
+    int suffix_len = strlen(suffix);
+
+    if (s_len < suffix_len) {
+        return false;
+    }
+
+    return strncmp(s + s_len - suffix_len, suffix, suffix_len) == 0;
+}
+
 void log_debug_handle_client_header(struct HandleClientArgs *args)
 {
     log_debug("[%d] [%s:%d] ",
@@ -163,7 +181,7 @@ static void *handle_client(void *void_arg)
 
     enum HttpMethod method;
     char *request_target;
-    char *http_version;
+    enum HttpVersion version;
 
     struct MethodTableEntry {
         char *request_line_prefix;
@@ -198,8 +216,23 @@ static void *handle_client(void *void_arg)
         goto finally;
     }
 
+    if (str_ends_with(request_line, " HTTP/0.9")) {
+        version = HTTP_VERSION_0_9;
+    } else if (str_ends_with(request_line, " HTTP/1.0")) {
+        version = HTTP_VERSION_1_0;
+    } else if (str_ends_with(request_line, " HTTP/1.1")) {
+        version = HTTP_VERSION_1_1;
+    } else {
+        log_debug_handle_client_header(args);
+        log_debug("Unknown HTTP version\n");
+        goto finally;
+    }
+
     log_debug_handle_client_header(args);
-    log_debug("Given method: %d\n", method);
+    log_debug("Given HTTP method: %d\n", method);
+
+    log_debug_handle_client_header(args);
+    log_debug("Given HTTP version: %d\n", version);
 
     char *first_space_ptr = strchr(request_line, ' ');
     *first_space_ptr = '\0';
@@ -208,12 +241,6 @@ static void *handle_client(void *void_arg)
     *second_space_ptr = '\0';
 
     request_target = strdup(first_space_ptr + 1);
-
-    http_version = strdup(second_space_ptr + 1);
-
-    log_debug_handle_client_header(args);
-    log_debug("Request line\n\tMethod: %d\n\tRequest target: %s\n\tHTTP version: %s\n",
-            method, request_target, http_version);
 
     int count = 0;
     while (1) {
