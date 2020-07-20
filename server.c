@@ -46,6 +46,29 @@ enum HttpVersion {
     HTTP_VERSION_1_1,
 };
 
+struct HttpRequestHeaderField {
+    char *name;
+    char *value;
+};
+
+const int initial_header_fields_capacity = 16;
+
+struct HttpRequestHeaderFields {
+    struct HttpRequestHeaderField *fields;
+    int len;
+    int cap;
+};
+
+struct HttpRequest {
+    enum HttpMethod method;
+    char *target;
+    enum HttpVersion version;
+
+    struct HttpRequestHeaderFields fields;
+
+    char *message_body;
+};
+
 struct HandleClientArgs {
     int sk;
 
@@ -180,6 +203,8 @@ static void *handle_client(void *void_arg)
     log_debug_handle_client_header(args);
     log_debug("first line: %s\n", request_line);
 
+    struct HttpRequest request;
+
     enum HttpMethod method;
     char *request_target;
     enum HttpVersion version;
@@ -217,6 +242,8 @@ static void *handle_client(void *void_arg)
         goto finally;
     }
 
+    request.method = method;
+
     if (str_ends_with(request_line, " HTTP/0.9")) {
         version = HTTP_VERSION_0_9;
     } else if (str_ends_with(request_line, " HTTP/1.0")) {
@@ -229,6 +256,8 @@ static void *handle_client(void *void_arg)
         goto finally;
     }
 
+    request.version = version;
+
     log_debug_handle_client_header(args);
     log_debug("Given HTTP method: %d\n", method);
 
@@ -240,10 +269,17 @@ static void *handle_client(void *void_arg)
 
     request_target = strndup(first_space_ptr + 1, last_space_ptr - first_space_ptr - 1);
 
+    request.target = request_target;
+
     log_debug_handle_client_header(args);
     log_debug("Given HTTP request target: %s\n", request_target);
 
-    int count = 0;
+    struct HttpRequestHeaderFields fields;
+    fields.len = 0;
+    fields.cap = initial_header_fields_capacity;
+    fields.fields = malloc(fields.cap * sizeof(struct HttpRequestHeaderField));
+
+    int pos = 0;
     while (1) {
         char *header_line = recv_line(&recv_buffer);
         remove_crlf(header_line);
@@ -263,13 +299,25 @@ static void *handle_client(void *void_arg)
         }
         header_field_value = strdup(ptr);
 
-        log_debug_handle_client_header(args);
-        log_debug("%d Header field name: %s\n", count, header_field_name);
-        log_debug_handle_client_header(args);
-        log_debug("%d Header field value: %s\n", count, header_field_value);
+        if (pos == fields.cap) {
+            fields.cap *= 2;
+            fields.fields = realloc(fields.fields,
+                    fields.cap * sizeof(struct HttpRequestHeaderField));
+        }
 
-        ++count;
+        fields.fields[pos].name = header_field_name;
+        fields.fields[pos].value = header_field_value;
+
+        log_debug_handle_client_header(args);
+        log_debug("%d Header field name: %s\n", pos, header_field_name);
+        log_debug_handle_client_header(args);
+        log_debug("%d Header field value: %s\n", pos, header_field_value);
+
+        ++pos;
+        ++fields.len;
     }
+
+    request.fields = fields;
 
     char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, world!";
 
