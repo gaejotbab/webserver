@@ -26,8 +26,8 @@ static const size_t recv_buf_capacity = 2048;
 
 static bool server_stopped = false;
 
-struct SocketHandlerData {
-    int fd;
+struct HandleClientArgs {
+    int sk;
 };
 
 struct RecvBuffer {
@@ -51,7 +51,7 @@ char *recv_str_until(struct RecvBuffer *recv_buffer, char c) {
 
             if (recv_buffer->len == -1) {
                 perror("recv");
-                exit(100);
+                return NULL;
             }
         }
 
@@ -63,32 +63,29 @@ char *recv_str_until(struct RecvBuffer *recv_buffer, char c) {
             }
         }
 
-        if (index == -1) {
-            while (str_buf_len + recv_buffer->len > str_buf_capacity) {
-                str_buf_capacity *= 2;
-                str_buf = realloc(str_buf, str_buf_capacity);
-            }
+        int n = (index == -1 ? recv_buffer->len : index + 1) - recv_buffer->pos;
 
-            memcpy(str_buf + str_buf_len, recv_buffer->buf, recv_buffer->cap);
-            str_buf_len += recv_buffer->len;
+        while (str_buf_len + n > str_buf_capacity) {
+            str_buf_capacity *= 2;
+            str_buf = realloc(str_buf, str_buf_capacity);
+        }
 
-            recv_buffer->pos = recv_buffer->len;
-        } else {
-            while (str_buf_len + (index + 1 - recv_buffer->pos) > str_buf_capacity) {
-                str_buf_capacity *= 2;
-                str_buf = realloc(str_buf, str_buf_capacity);
-            }
+        memcpy(str_buf + str_buf_len, recv_buffer->buf + recv_buffer->pos, n);
+        str_buf_len += (index + 1 - recv_buffer->pos);
 
-            memcpy(str_buf + str_buf_len, recv_buffer->buf + recv_buffer->pos,
-                    (index + 1 - recv_buffer->pos));
-            str_buf[str_buf_len + (index + 1 - recv_buffer->pos)] = '\0';
-            str_buf_len += (index + 1 - recv_buffer->pos);
+        recv_buffer->pos += n;
 
-            recv_buffer->pos = index + 1;
-
+        if (index != -1) {
             break;
         }
     }
+
+    if (str_buf_len + 1 > str_buf_capacity) {
+		++str_buf_capacity;
+		str_buf = realloc(str_buf, str_buf_capacity);
+	}
+
+    str_buf[str_buf_len] = '\0';
 
     return str_buf;
 }
@@ -111,12 +108,12 @@ void remove_crlf(char *str)
     }
 }
 
-static void *accepted_socket_handler(void *arg)
+static void *handle_client(void *arg)
 {
-    struct SocketHandlerData data = *((struct SocketHandlerData *)arg);
+    struct HandleClientArgs data = *((struct HandleClientArgs *)arg);
     free(arg);
 
-    int fd = data.fd;
+    int fd = data.sk;
 
     log_debug("[%d] thread started: fn=accepted_socket_handler\n", fd);
 
@@ -172,68 +169,57 @@ static void *accepted_socket_handler(void *arg)
 
 int main(int argc, char **argv)
 {
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int server_sk = socket(AF_INET, SOCK_STREAM, 0);
 
-    if (socket_fd == -1) {
+    if (server_sk == -1) {
         perror("socket");
         exit(1);
     }
 
     int so_reuseaddr_enabled = 1;
-    if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &so_reuseaddr_enabled, sizeof(int)) == -1) {
+    if (setsockopt(server_sk, SOL_SOCKET, SO_REUSEADDR, &so_reuseaddr_enabled, sizeof(int)) == -1) {
         perror("setsockopt");
+        exit(1);
     }
 
     struct sockaddr_in bind_addr;
     bind_addr.sin_family = AF_INET;
     bind_addr.sin_port = htons(8080);
-    bind_addr.sin_addr.s_addr = 0;
+    bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    int bind_result = bind(socket_fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr));
-
-    if (bind_result == -1) {
+    if (bind(server_sk, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) == -1) {
         perror("bind");
         exit(2);
     }
 
-    int listen_result = listen(socket_fd, backlog);
-
-    if (listen_result == -1) {
+    if (listen(server_sk, backlog) == -1) {
         perror("listen");
         exit(3);
     }
 
-    struct sockaddr_in accepted_socket_addr;
-    socklen_t accepted_socket_length = sizeof(accepted_socket_addr);
-
     while (!server_stopped) {
-        int accepted_socket_fd = accept(socket_fd,
-                (struct sockaddr *)&accepted_socket_addr, &accepted_socket_length);
+        struct sockaddr_in client_addr;
+        socklen_t client_addr_length = sizeof(client_addr);
 
-        if (accepted_socket_fd == -1) {
+        int sk = accept(server_sk,
+                (struct sockaddr *)&client_addr, &client_addr_length);
+
+        if (sk == -1) {
             perror("accept");
             exit(4);
         }
 
-        log_debug("accepted: fd=%d, addr=%s:%d\n",
-                accepted_socket_fd,
-                inet_ntoa(accepted_socket_addr.sin_addr),
-                accepted_socket_addr.sin_port);
+        struct HandleClientArgs *args = malloc(sizeof(struct HandleClientArgs));
+        args->sk = sk;
 
-        struct SocketHandlerData *data = malloc(sizeof(struct SocketHandlerData));
-        data->fd = accepted_socket_fd;
+        pthread_t client_thread;
 
-        /*
-        pthread_t thread;
-
-        int pthread_result = pthread_create(&thread, NULL, accepted_socket_handler, data);
+        int pthread_result = pthread_create(&client_thread, NULL, handle_client, args);
 
         if (pthread_result != 0) {
             perror("pthread_create");
             exit(5);
         }
-        */
-        accepted_socket_handler(data);
     }
 
     return 0;

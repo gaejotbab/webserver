@@ -3,6 +3,7 @@ CFLAGS=-Wall -g
 LDFLAGS=-pthread
 
 all: server
+.PHONY: all
 
 server: server.c
 
