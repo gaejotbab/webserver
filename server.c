@@ -319,12 +319,46 @@ static void *handle_client(void *void_arg)
 
     request.fields = fields;
 
-    char *http_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello, world!";
-
-    int send_result = send(sk, http_response, strlen(http_response), 0);
-    if (send_result == -1) {
-        perror("send");
+    FILE *fp = fopen("index.html", "r");
+    if (fp == NULL) {
+        perror("fopen");
+        goto finally;
     }
+
+    if (fseek(fp, 0, SEEK_END) == -1) {
+        perror("fseek");
+        fclose(fp);
+        goto finally;
+    }
+
+    long file_size = ftell(fp);
+    if (file_size == -1) {
+        perror("ftell");
+        fclose(fp);
+        goto finally;
+    }
+
+    if (fseek(fp, 0, SEEK_SET) == -1) {
+        perror("fseek");
+        fclose(fp);
+        goto finally;
+    }
+
+    char *file_content = malloc(file_size);
+    size_t n = fread(file_content, 1, file_size, fp);
+    if (n != file_size) {
+        log_debug_handle_client_header(args);
+        log_debug("Error while reading the file: n != file_size\n");
+        fclose(fp);
+        goto finally;
+    }
+
+    fclose(fp);
+
+    char *http_response_first = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
+    send(sk, http_response_first, strlen(http_response_first), 0);
+
+    send(sk, file_content, file_size, 0);
 
 finally:
     free(args);
