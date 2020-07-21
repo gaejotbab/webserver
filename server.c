@@ -54,7 +54,7 @@ struct HttpRequestHeaderField {
 const int initial_header_fields_capacity = 16;
 
 struct HttpRequestHeaderFields {
-    struct HttpRequestHeaderField *fields;
+    struct HttpRequestHeaderField *elements;
     int len;
     int cap;
 };
@@ -277,7 +277,7 @@ static void *handle_client(void *void_arg)
     struct HttpRequestHeaderFields fields;
     fields.len = 0;
     fields.cap = initial_header_fields_capacity;
-    fields.fields = malloc(fields.cap * sizeof(struct HttpRequestHeaderField));
+    fields.elements = malloc(fields.cap * sizeof(struct HttpRequestHeaderField));
 
     int pos = 0;
     while (1) {
@@ -301,12 +301,12 @@ static void *handle_client(void *void_arg)
 
         if (pos == fields.cap) {
             fields.cap *= 2;
-            fields.fields = realloc(fields.fields,
+            fields.elements = realloc(fields.elements,
                     fields.cap * sizeof(struct HttpRequestHeaderField));
         }
 
-        fields.fields[pos].name = header_field_name;
-        fields.fields[pos].value = header_field_value;
+        fields.elements[pos].name = header_field_name;
+        fields.elements[pos].value = header_field_value;
 
         log_debug_handle_client_header(args);
         log_debug("%d Header field name: %s\n", pos, header_field_name);
