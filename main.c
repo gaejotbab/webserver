@@ -184,10 +184,28 @@ static void *handle_client(void *void_arg)
 
     request.fields = fields;
 
-    if (strcmp(request.target, "/") == 0) {
-        FILE *fp = fopen("contents/index.html", "r");
+    struct SendAllResult send_all_result;
+
+    if (str_starts_with(request.target, "/")) {
+        char *file_name = malloc(strlen("contents") + strlen(request.target) + 1);
+
+        strcpy(file_name, "contents");
+        strcat(file_name, request.target);
+
+        if (file_name[strlen(file_name) - 1] == '/') {
+            file_name = realloc(file_name, strlen(file_name) + strlen("index.html") + 1);
+            strcat(file_name, "index.html");
+        }
+
+        FILE *fp = fopen(file_name, "r");
         if (fp == NULL) {
-            perror("fopen");
+            char *http_response_404 = "HTTP/1.1 404 Not Found\r\n\r\n";
+
+            send_all_result = send_all(sk, http_response_404, strlen(http_response_404), 0);
+            if (!send_all_result.success) {
+                perror("send");
+            }
+
             goto finally;
         }
 
@@ -214,68 +232,15 @@ static void *handle_client(void *void_arg)
         size_t n = fread(file_content, 1, file_size, fp);
         if (n != file_size) {
             log_debug_handle_client_header(args);
-            log_debug("Error while reading the file: n != file_size\n");
+            log_debug("Error while reading the file: n != file_size, n=%d, file_size=%d\n",
+                    n, file_size);
             fclose(fp);
             goto finally;
         }
 
         fclose(fp);
 
-        char *http_response_first = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
-
-        struct SendAllResult send_all_result;
-
-        send_all_result = send_all(sk, http_response_first, strlen(http_response_first), 0);
-        if (!send_all_result.success) {
-            perror("send");
-            goto finally;
-        }
-
-        send_all_result = send_all(sk, file_content, file_size, 0);
-        if (!send_all_result.success) {
-            perror("send");
-            goto finally;
-        }
-    } else if (strcmp(request.target, "/ssammu.jpeg") == 0) {
-        FILE *fp = fopen("contents/ssammu.jpeg", "r");
-        if (fp == NULL) {
-            perror("fopen");
-            goto finally;
-        }
-
-        if (fseek(fp, 0, SEEK_END) == -1) {
-            perror("fseek");
-            fclose(fp);
-            goto finally;
-        }
-
-        long file_size = ftell(fp);
-        if (file_size == -1) {
-            perror("ftell");
-            fclose(fp);
-            goto finally;
-        }
-
-        if (fseek(fp, 0, SEEK_SET) == -1) {
-            perror("fseek");
-            fclose(fp);
-            goto finally;
-        }
-
-        char *file_content = malloc(file_size);
-        size_t n = fread(file_content, 1, file_size, fp);
-        if (n != file_size) {
-            log_debug_handle_client_header(args);
-            log_debug("Error while reading the file: n != file_size\n");
-            fclose(fp);
-            goto finally;
-        }
-
-        fclose(fp);
-
-        char *http_response_first = "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\n\r\n";
-
-        struct SendAllResult send_all_result;
+        char *http_response_first = "HTTP/1.1 200 OK\r\n\r\n";
 
         send_all_result = send_all(sk, http_response_first, strlen(http_response_first), 0);
         if (!send_all_result.success) {
