@@ -319,7 +319,7 @@ static void *handle_client(void *void_arg)
 
     request.fields = fields;
 
-    FILE *fp = fopen("index.html", "r");
+    FILE *fp = fopen("contents/index.html", "r");
     if (fp == NULL) {
         perror("fopen");
         goto finally;
