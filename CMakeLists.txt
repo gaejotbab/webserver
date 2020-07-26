@@ -4,6 +4,12 @@ project(webserver C)
 set(CMAKE_C_STANDARD 11)
 
 add_executable(webserver
-        server.c)
+    main.c
+    string.c
+    string.h
+    socket.c
+    socket.h
+    http.h
+)
 
 target_link_libraries(webserver pthread)

@@ -4,12 +4,15 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
 #include <arpa/inet.h>
 #include <stdbool.h>
 #include <pthread.h>
 #include <string.h>
 #include <stdarg.h>
+
+#include "string.h"
+#include "socket.h"
+#include "http.h"
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
 
@@ -23,153 +26,15 @@ void log_debug(const char *format, ...)
 
 static const int backlog = 32;
 
-static const size_t initial_str_buf_capacity = 64;
-static const size_t recv_buf_capacity = 2048;
+static const int recv_buf_capacity = 2048;
 
 static bool server_stopped = false;
-
-enum HttpMethod {
-    HTTP_METHOD_GET = 1,
-    HTTP_METHOD_HEAD,
-    HTTP_METHOD_POST,
-    HTTP_METHOD_PUT,
-    HTTP_METHOD_DELETE,
-    HTTP_METHOD_TRACE,
-    HTTP_METHOD_OPTIONS,
-    HTTP_METHOD_CONNECT,
-    HTTP_METHOD_PATCH,
-};
-
-enum HttpVersion {
-    HTTP_VERSION_0_9 = 1,
-    HTTP_VERSION_1_0,
-    HTTP_VERSION_1_1,
-};
-
-struct HttpRequestHeaderField {
-    char *name;
-    char *value;
-};
-
-const int initial_header_fields_capacity = 16;
-
-struct HttpRequestHeaderFields {
-    struct HttpRequestHeaderField *elements;
-    int len;
-    int cap;
-};
-
-struct HttpRequest {
-    enum HttpMethod method;
-    char *target;
-    enum HttpVersion version;
-
-    struct HttpRequestHeaderFields fields;
-
-    char *message_body;
-};
 
 struct HandleClientArgs {
     int sk;
 
     struct sockaddr_in client_addr;
 };
-
-struct RecvBuffer {
-    int fd;
-
-    char *buf;
-    int pos;
-    int len;
-    int cap;
-};
-
-char *recv_str_until(struct RecvBuffer *recv_buffer, char c)
-{
-    int str_buf_capacity = initial_str_buf_capacity;
-    char *str_buf = malloc(str_buf_capacity);
-    int str_buf_len = 0;
-
-    while (1) {
-        if (recv_buffer->pos == recv_buffer->len) {
-            recv_buffer->pos = 0;
-            recv_buffer->len = recv(recv_buffer->fd, recv_buffer->buf, recv_buffer->cap, 0);
-
-            if (recv_buffer->len == -1) {
-                perror("recv");
-                return NULL;
-            }
-        }
-
-        int index = -1;
-        for (int i = recv_buffer->pos; i < recv_buffer->len; ++i) {
-            if (recv_buffer->buf[i] == c) {
-                index = i;
-                break;
-            }
-        }
-
-        int n = (index == -1 ? recv_buffer->len : index + 1) - recv_buffer->pos;
-
-        while (str_buf_len + n > str_buf_capacity) {
-            str_buf_capacity *= 2;
-            str_buf = realloc(str_buf, str_buf_capacity);
-        }
-
-        memcpy(str_buf + str_buf_len, recv_buffer->buf + recv_buffer->pos, n);
-        str_buf_len += (index + 1 - recv_buffer->pos);
-
-        recv_buffer->pos += n;
-
-        if (index != -1) {
-            break;
-        }
-    }
-
-    if (str_buf_len + 1 > str_buf_capacity) {
-        ++str_buf_capacity;
-        str_buf = realloc(str_buf, str_buf_capacity);
-    }
-
-    str_buf[str_buf_len] = '\0';
-
-    return str_buf;
-}
-
-char *recv_line(struct RecvBuffer *recv_buffer)
-{
-    return recv_str_until(recv_buffer, '\n');
-}
-
-void remove_crlf(char *str)
-{
-    int len = strlen(str);
-
-    if (str[len - 1] == '\n') {
-        str[len - 1] = '\0';
-    }
-
-    if (str[len - 2] == '\r') {
-        str[len - 2] = '\0';
-    }
-}
-
-bool str_starts_with(char *s, char *prefix)
-{
-    return strncmp(s, prefix, strlen(prefix)) == 0;
-}
-
-bool str_ends_with(char *s, char *suffix)
-{
-    int s_len = strlen(s);
-    int suffix_len = strlen(suffix);
-
-    if (s_len < suffix_len) {
-        return false;
-    }
-
-    return strncmp(s + s_len - suffix_len, suffix, suffix_len) == 0;
-}
 
 void log_debug_handle_client_header(struct HandleClientArgs *args)
 {
